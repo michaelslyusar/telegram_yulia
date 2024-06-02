@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import types
 import json
+import time
 import telebot
 from dotenv import load_dotenv
 import os
@@ -18,7 +19,7 @@ def start(message):
     cur = conn.cursor()
 
     cur.execute(
-        'CREATE TABLE IF NOT EXISTS users(id int auto_increment PRIMARY KEY, user_id varchar(50), last_tarot_read date)')
+        'CREATE TABLE IF NOT EXISTS users(id int auto_increment PRIMARY KEY, user_id varchar(50),last_affirmation date,last_zodiac date, last_tarot_read date)')
     conn.commit()
     cur.close()
     conn.close()
@@ -46,7 +47,6 @@ def start(message):
 Каждый выбор откроет вам новый источник мудрости и вдохновения. Какой путь вы предпочтёте сегодня?"""
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-
 @bot.message_handler(commands=['card'])
 def card(message):
     text = 'Выбор сделан... Карта дня откроет вам завесу будущего и покажет, какие энергии и события ждут вас сегодня. Позвольте магу раскрыть перед вами тайны этого дня и получить важное предсказание.'
@@ -67,8 +67,19 @@ def zodiac(message):
 
 @bot.message_handler(commands=['affirmation'])
 def affirmation(message):
+    file = open('./img/affirmation.jpg', 'rb')
+    bot.send_photo(message.chat.id, file)
+    file.close()
+
     text = 'Выбор сделан... Мудрый маг приготовил для вас аффирмацию, которая наполнит ваш день позитивной энергией и вдохновением. Повторяйте её, чтобы укрепить свой дух и достичь гармонии.'
-    bot.send_message(message.chat.id,text)
+    bot.send_message(message.chat.id, text)
+
+    f = open('db.json', encoding="utf8")
+    data = json.load(f)
+    random_affirmation = random.randrange(1, len(data["Affirmations"]), 1)
+    print(len(data["Affirmations"]))
+    bot.send_message(message.chat.id, data["Affirmations"][random_affirmation]["text"])
+    f.close()
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_message(callback):
@@ -84,10 +95,10 @@ def callback_message(callback):
 
         bot.send_message(callback.message.chat.id, text, reply_markup=markup)
     elif callback.data == 'CardReveal':
-        f = open('./db_back.json',encoding="utf8")
+        f = open('db.json', encoding="utf8")
         data = json.load(f)
         random_card = random.randrange(1, len(data["cards"]), 1)
-
+        print(len(data["cards"]))
         file = open('./img/' + data['cards'][random_card]['name'] + '.jpg', 'rb')
         bot.send_photo(callback.message.chat.id, file)
         file.close()
@@ -99,11 +110,33 @@ def callback_message(callback):
         print("Horoscope")
         bot.send_message(callback.message.chat.id,text)
     elif callback.data == 'Affirmation':
+        file = open('./img/affirmation.jpg','rb')
+        bot.send_photo(callback.message.chat.id, file)
+        file.close()
+
         text = 'Выбор сделан... Мудрый маг приготовил для вас аффирмацию, которая наполнит ваш день позитивной энергией и вдохновением. Повторяйте её, чтобы укрепить свой дух и достичь гармонии.'
-        print("Affirmation")
-        bot.send_message(callback.message.chat.id,text)
+        bot.send_message(callback.message.chat.id, text)
 
+        f = open('db.json', encoding="utf8")
+        data = json.load(f)
+        random_affirmation = random.randrange(1, len(data["Affirmations"]), 1)
+        print(callback.message)
+        bot.send_message(callback.message.chat.id, data["Affirmations"][random_affirmation]["text"])
+        f.close()
 
+        user_id = callback.message.chat.id
+        date = callback.message.date
+        set_affirmation_date(user_id)
+
+def set_affirmation_date(user_id):
+    conn = sqlite3.connect('mysticism.db')
+    cur = conn.cursor()
+
+    cur.execute(
+        'INSERT INTO users(user_id,last_affirmation) VALUES("%s","%s")' % (user_id,time.time()))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 
