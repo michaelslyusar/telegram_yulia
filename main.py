@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import types
+import math
 import json
+import datetime
 import time
 import telebot
 from dotenv import load_dotenv
@@ -18,9 +20,13 @@ bot = telebot.TeleBot(os.getenv('TOKEN'))
 def start(message):
     conn = sqlite3.connect('mysticism.db')
     cur = conn.cursor()
-
-    cur.execute(
-        'CREATE TABLE IF NOT EXISTS users(id int auto_increment PRIMARY KEY, user_id varchar(50),last_affirmation date,last_zodiac date, last_tarot_read date)')
+    try:
+        cur.execute(
+            'CREATE TABLE IF NOT EXISTS users(user_id varchar(50) PRIMARY KEY,last_affirmation date,last_zodiac date, last_tarot_read date)')
+        cur.execute('INSERT INTO users(user_id) VALUES(:user_id)', {'user_id': message.chat.id})
+    except Exception as e:
+        print('Something went wrong when initializing DB or user')
+        print(e)
     conn.commit()
     cur.close()
     conn.close()
@@ -86,27 +92,58 @@ def zodiac(message):
     text = 'Выбор сделан... Звезды готовы рассказать вам о том, что они приготовили для Вас в этом году.'
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
+
 @bot.message_handler(commands=['affirmation'])
 def affirmation(message):
-    markup = types.InlineKeyboardMarkup()
-    btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
-    btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+    try:
+        daily_access = check_last_affirmation(message.chat.id)
+        if daily_access:
+            markup = types.InlineKeyboardMarkup()
+            btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
+            btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+            markup.row(btn_tarot, btn_horoscope)
 
-    markup.row(btn_tarot, btn_horoscope)
+            file = open('./img/affirmation.jpg', 'rb')
+            bot.send_photo(message.chat.id, file)
+            file.close()
 
-    file = open('./img/affirmation.jpg', 'rb')
-    bot.send_photo(message.chat.id, file)
-    file.close()
+            text = 'Выбор сделан... Мудрый маг приготовил для вас аффирмацию, которая наполнит ваш день позитивной энергией и вдохновением. Повторяйте её, чтобы укрепить свой дух и достичь гармонии:'
 
-    text = 'Выбор сделан... Мудрый маг приготовил для вас аффирмацию, которая наполнит ваш день позитивной энергией и вдохновением. Повторяйте её, чтобы укрепить свой дух и достичь гармонии:'
+            f = open('db.json', encoding="utf8")
+            data = json.load(f)
+            random_affirmation = random.randrange(1, len(data["Affirmations"]), 1)
+            bot.send_message(message.chat.id,
+                             text + "\n\n" + data["Affirmations"][random_affirmation]["text"],
+                             parse_mode='HTML', reply_markup=markup)
+            f.close()
 
-    f = open('db.json', encoding="utf8")
-    data = json.load(f)
-    random_affirmation = random.randrange(1, len(data["Affirmations"]), 1)
-    print(len(data["Affirmations"]))
-    bot.send_message(message.chat.id, text + "\n\n" + data["Affirmations"][random_affirmation]["text"],
-                     parse_mode='HTML', reply_markup=markup)
-    f.close()
+            user_id = message.chat.id
+            try:
+                set_affirmation_date(user_id)
+            except:
+                print('something went wrong when updating affirmations in db')
+
+            markup = types.ReplyKeyboardMarkup()
+            btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
+            btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+            markup.row(btn_tarot, btn_horoscope)
+        else:
+            # Affirmation access denied
+            # Image
+            file = open('./img/affirmation_denied.jpg.jpg', 'rb')
+            bot.send_photo(message.chat.id, file)
+            file.close()
+            # Buttons
+            markup = types.InlineKeyboardMarkup()
+            btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+            btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
+            markup.row(btn_horoscope, btn_tarot)
+            # Text
+            text = '<b>Мудрый маг глядит на вас с глубоким пониманием и говорит:</b> «Сегодня ваш выбор уже сделан. Судьба развернулась перед вами, и её тайны раскрылись. Повторить выбор нельзя, ведь мудрость приходит лишь тем, кто умеет ждать. Возвращайтесь завтра, когда звезды вновь будут благосклонны к вам.»'
+            bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='HTML')
+    except:
+        print('something went wrong when checking last affirmation')
+
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_message(callback):
@@ -123,21 +160,51 @@ def callback_message(callback):
         bot.send_message(callback.message.chat.id, text, reply_markup=markup)
 
     elif callback.data == 'CardReveal':
-        markup = types.InlineKeyboardMarkup()
-        btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
-        btn_affirmation = types.InlineKeyboardButton('Аффирмация дня', callback_data='Affirmation')
-        markup.row(btn_affirmation, btn_horoscope)
+        try:
+            daily_access = check_last_tarot_read(callback.message.chat.id)
+            if daily_access:
+                # Picking random card from card list
+                f = open('db.json', encoding="utf8")
+                data = json.load(f)
+                random_card = random.randrange(1, len(data["cards"]), 1)
+                f.close()
 
-        f = open('db.json', encoding="utf8")
-        data = json.load(f)
-        random_card = random.randrange(1, len(data["cards"]), 1)
+                # Gui
+                # Image
+                file = open('./img/' + data['cards'][random_card]['name'] + '.jpg', 'rb')
+                bot.send_photo(callback.message.chat.id, file)
+                file.close()
+                # Buttons
+                markup = types.InlineKeyboardMarkup()
+                btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+                btn_affirmation = types.InlineKeyboardButton('Аффирмация дня', callback_data='Affirmation')
+                markup.row(btn_affirmation, btn_horoscope)
+                bot.send_message(callback.message.chat.id, data['cards'][random_card]['description'],
+                                 reply_markup=markup)
 
-        file = open('./img/' + data['cards'][random_card]['name'] + '.jpg', 'rb')
-        bot.send_photo(callback.message.chat.id, file)
-        file.close()
-
-        bot.send_message(callback.message.chat.id, data['cards'][random_card]['description'], reply_markup=markup)
-        f.close()
+                # Updating date of last tarot
+                user_id = callback.message.chat.id
+                try:
+                    set_tarot_read_date(user_id)
+                except:
+                    print('something went wrong when updating last tarot read in db')
+            else:
+                # Card Access Denies
+                # Image
+                file = open('./img/card_denied.jpg', 'rb')
+                bot.send_photo(callback.message.chat.id, file)
+                file.close()
+                # Buttons
+                markup = types.InlineKeyboardMarkup()
+                btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+                btn_affirmation = types.InlineKeyboardButton('Аффирмация дня', callback_data='Affirmation')
+                markup.row(btn_horoscope,btn_affirmation)
+                # Text
+                text ='<b>Мудрый маг глядит на вас с глубоким пониманием и говорит:</b> «Сегодня ваш выбор уже сделан. Судьба развернулась перед вами, и её тайны раскрылись. Повторить выбор нельзя, ведь мудрость приходит лишь тем, кто умеет ждать. Возвращайтесь завтра, когда звезды вновь будут благосклонны к вам.»'
+                bot.send_message(callback.message.chat.id, text, reply_markup=markup,parse_mode='HTML')
+                print('tarot access denied')
+        except:
+            print('Something went wrong while checking for last tarot read')
 
     elif callback.data == 'ZodiacSelection':
         markup = types.InlineKeyboardMarkup()
@@ -163,34 +230,57 @@ def callback_message(callback):
         bot.send_message(callback.message.chat.id, text, reply_markup=markup)
 
     elif callback.data == 'Affirmation':
-        markup = types.InlineKeyboardMarkup()
-        btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
-        btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
-        markup.row(btn_tarot, btn_horoscope)
+        try:
+            daily_access = check_last_affirmation(callback.message.chat.id)
+            print(daily_access)
+            if daily_access:
+                print('if')
+                markup = types.InlineKeyboardMarkup()
+                btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
+                btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+                markup.row(btn_tarot, btn_horoscope)
 
-        file = open('./img/affirmation.jpg', 'rb')
-        bot.send_photo(callback.message.chat.id, file)
-        file.close()
+                file = open('./img/affirmation.jpg', 'rb')
+                bot.send_photo(callback.message.chat.id, file)
+                file.close()
 
-        text = 'Выбор сделан... Мудрый маг приготовил для вас аффирмацию, которая наполнит ваш день позитивной энергией и вдохновением. Повторяйте её, чтобы укрепить свой дух и достичь гармонии:'
+                text = 'Выбор сделан... Мудрый маг приготовил для вас аффирмацию, которая наполнит ваш день позитивной энергией и вдохновением. Повторяйте её, чтобы укрепить свой дух и достичь гармонии:'
 
-        f = open('db.json', encoding="utf8")
-        data = json.load(f)
-        random_affirmation = random.randrange(1, len(data["Affirmations"]), 1)
-        print(callback.message)
-        bot.send_message(callback.message.chat.id, text + "\n\n" + data["Affirmations"][random_affirmation]["text"],
-                         parse_mode='HTML', reply_markup=markup)
-        f.close()
+                f = open('db.json', encoding="utf8")
+                data = json.load(f)
+                random_affirmation = random.randrange(1, len(data["Affirmations"]), 1)
+                print(callback.message)
+                bot.send_message(callback.message.chat.id,
+                                 text + "\n\n" + data["Affirmations"][random_affirmation]["text"],
+                                 parse_mode='HTML', reply_markup=markup)
+                f.close()
 
-        user_id = callback.message.chat.id
-        date = callback.message.date
-        set_affirmation_date(user_id)
+                user_id = callback.message.chat.id
+                try:
+                    set_affirmation_date(user_id)
+                except:
+                    print('something went wrong when updating affirmations in db')
 
-        markup = types.ReplyKeyboardMarkup()
-        btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
-        btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
-        btn_affirmation = types.InlineKeyboardButton('Аффирмация дня', callback_data='Affirmation')
-        markup.row(btn_tarot, btn_horoscope)
+                markup = types.ReplyKeyboardMarkup()
+                btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
+                btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+                markup.row(btn_tarot, btn_horoscope)
+            else:
+                # Affirmation access denied
+                # Image
+                file = open('./img/affirmation_denied.jpg', 'rb')
+                bot.send_photo(callback.message.chat.id, file)
+                file.close()
+                # Buttons
+                markup = types.InlineKeyboardMarkup()
+                btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
+                btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
+                markup.row(btn_horoscope, btn_tarot)
+                # Text
+                text = '<b>Мудрый маг глядит на вас с глубоким пониманием и говорит:</b> «Сегодня ваш выбор уже сделан. Судьба развернулась перед вами, и её тайны раскрылись. Повторить выбор нельзя, ведь мудрость приходит лишь тем, кто умеет ждать. Возвращайтесь завтра, когда звезды вновь будут благосклонны к вам.»'
+                bot.send_message(callback.message.chat.id, text, reply_markup=markup, parse_mode='HTML')
+        except:
+            print('something went wrong when checking last affirmation')
 
     elif callback.data == 'Гороскоп_Козерог':
         horoscope('Козерог', callback.message)
@@ -228,15 +318,105 @@ def callback_message(callback):
     elif callback.data == 'Гороскоп_Стрелец':
         horoscope('Стрелец', callback.message)
 
+
 def set_affirmation_date(user_id):
     conn = sqlite3.connect('mysticism.db')
     cur = conn.cursor()
-
-    cur.execute(
-        'INSERT INTO users(user_id,last_affirmation) VALUES("%s","%s")' % (user_id, time.time()))
+    try:
+        cur.execute('UPDATE users SET last_affirmation = :time WHERE user_id = :user_id',
+                    {'user_id': user_id, 'time': time.time()})
+    except Exception as e:
+        print(e)
     conn.commit()
     cur.close()
     conn.close()
+
+
+def set_tarot_read_date(user_id):
+    conn = sqlite3.connect('mysticism.db')
+    cur = conn.cursor()
+    try:
+        cur.execute('UPDATE users SET last_tarot_read = :time WHERE user_id = :user_id',
+                    {'user_id': user_id, 'time': time.time()})
+    except Exception as e:
+        print(e)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def check_last_affirmation(user_id):
+    conn = sqlite3.connect('mysticism.db')
+    cur = conn.cursor()
+    try:
+        cur.execute('SELECT * FROM users WHERE user_id=:user_id', {'user_id': user_id})
+        user = cur.fetchone()
+        if (user[1] is None):
+            return True
+    except Exception as e:
+        print(e)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    # Adding restriction for daily affirmation at 6AM
+    # Checking whether current date and last affirmation dates are the same
+    if (datetime.datetime.fromtimestamp(user[1]).date() == datetime.date.today()):
+        if (datetime.datetime.now().hour >= 6):
+            if (datetime.datetime.fromtimestamp(user[1]).time().hour < 6):
+                return True
+            else:
+                return False
+        else:
+            return False
+    # Checking whether last affirmation was done the day before
+    elif (datetime.datetime.fromtimestamp(user[1]).date() == datetime.date.today() - datetime.timedelta(days=1)):
+        if (datetime.datetime.now().hour < 6):
+            if (datetime.datetime.fromtimestamp(user[1]).time().hour < 6):
+                return True
+            else:
+                return False
+        else:
+            return True
+    else:
+        return True
+
+
+def check_last_tarot_read(user_id):
+    conn = sqlite3.connect('mysticism.db')
+    cur = conn.cursor()
+    try:
+        cur.execute('SELECT * FROM users WHERE user_id=:user_id', {'user_id': user_id})
+        user = cur.fetchone()
+        if(user[3] is None):
+            return True
+    except Exception as e:
+        print(e)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    # Adding restriction for daily affirmation at 6AM
+    # Checking whether current date and last affirmation dates are the same
+    if (datetime.datetime.fromtimestamp(user[3]).date() == datetime.date.today()):
+        if (datetime.datetime.now().hour >= 6):
+            if (datetime.datetime.fromtimestamp(user[3]).time().hour < 6):
+                return True
+            else:
+                return False
+        else:
+            return False
+    # Checking whether last affirmation was done the day before
+    elif (datetime.datetime.fromtimestamp(user[3]).date() == datetime.date.today() - datetime.timedelta(days=1)):
+        if (datetime.datetime.now().hour < 6):
+            if (datetime.datetime.fromtimestamp(user[3]).time().hour < 6):
+                return True
+            else:
+                return False
+        else:
+            return True
+    else:
+        return True
 
 
 def horoscope(sign, message):
