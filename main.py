@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import types
-import math
+import logging
 import json
 import datetime
 import time
@@ -12,6 +12,11 @@ from telebot import types
 import random
 
 load_dotenv()
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s (Line: %(lineno)s [%(filename)s])',
+                    level=logging.INFO,
+                    encoding='utf-8',
+                    filename='log.log',
+                    filemode='w')
 
 bot = telebot.TeleBot(os.getenv('TOKEN'))
 
@@ -25,7 +30,7 @@ def start(message):
             'CREATE TABLE IF NOT EXISTS users(user_id varchar(50) PRIMARY KEY,last_affirmation date,last_zodiac date, last_tarot_read date)')
         cur.execute('INSERT INTO users(user_id) VALUES(:user_id)', {'user_id': message.chat.id})
     except Exception as e:
-        print('Something went wrong when initializing DB or user')
+        logging.critical('Something went wrong when initializing DB or user')
         print(e)
     conn.commit()
     cur.close()
@@ -122,7 +127,7 @@ def affirmation(message):
             try:
                 set_affirmation_date(user_id)
             except:
-                print('something went wrong when updating affirmations in db')
+                logging.critical('something went wrong when updating affirmations in db')
 
             markup = types.ReplyKeyboardMarkup()
             btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
@@ -143,7 +148,7 @@ def affirmation(message):
             text = '<b>Мудрый маг глядит на вас с понимающей улыбкой и произносит:</b>\n«Сегодня ваша аффирмация уже выбрана. Слова мудрости и силы, которые вы получили, предназначены именно для вас в этот день. Повторить выбор нельзя, ведь каждая аффирмация несет свою уникальную энергию и значение. Возвращайтесь завтра, и судьба откроет перед вами новые слова вдохновения.»'
             bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='HTML')
     except:
-        print('something went wrong when checking last affirmation')
+        logging.critical('something went wrong when checking last affirmation')
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -188,7 +193,7 @@ def callback_message(callback):
                 try:
                     set_tarot_read_date(user_id)
                 except:
-                    print('something went wrong when updating last tarot read in db')
+                    logging.critical('something went wrong when updating last tarot read in db')
             else:
                 # Card Access Denies
                 # Image
@@ -199,13 +204,13 @@ def callback_message(callback):
                 markup = types.InlineKeyboardMarkup()
                 btn_horoscope = types.InlineKeyboardButton('Гороскоп на 2024', callback_data='ZodiacSelection')
                 btn_affirmation = types.InlineKeyboardButton('Аффирмация дня', callback_data='Affirmation')
-                markup.row(btn_horoscope,btn_affirmation)
+                markup.row(btn_horoscope, btn_affirmation)
                 # Text
-                text ='<b>Мудрый маг глядит на вас с глубоким пониманием и говорит:</b>\n«Сегодня ваш выбор уже сделан. Судьба развернулась перед вами, и её тайны раскрылись. Повторить выбор нельзя, ведь мудрость приходит лишь тем, кто умеет ждать. Возвращайтесь завтра, когда звезды вновь будут благосклонны к вам.»'
-                bot.send_message(callback.message.chat.id, text, reply_markup=markup,parse_mode='HTML')
+                text = '<b>Мудрый маг глядит на вас с глубоким пониманием и говорит:</b>\n«Сегодня ваш выбор уже сделан. Судьба развернулась перед вами, и её тайны раскрылись. Повторить выбор нельзя, ведь мудрость приходит лишь тем, кто умеет ждать. Возвращайтесь завтра, когда звезды вновь будут благосклонны к вам.»'
+                bot.send_message(callback.message.chat.id, text, reply_markup=markup, parse_mode='HTML')
                 print('tarot access denied')
         except:
-            print('Something went wrong while checking for last tarot read')
+            logging.critical('Something went wrong while checking for last tarot read')
 
     elif callback.data == 'ZodiacSelection':
         markup = types.InlineKeyboardMarkup()
@@ -260,7 +265,7 @@ def callback_message(callback):
                 try:
                     set_affirmation_date(user_id)
                 except:
-                    print('something went wrong when updating affirmations in db')
+                    logging.critical('something went wrong when updating affirmations in db')
 
                 markup = types.ReplyKeyboardMarkup()
                 btn_tarot = types.InlineKeyboardButton('Карта дня', callback_data='Card')
@@ -281,7 +286,7 @@ def callback_message(callback):
                 text = '<b>Мудрый маг глядит на вас с понимающей улыбкой и произносит:</b>\n«Сегодня ваша аффирмация уже выбрана. Слова мудрости и силы, которые вы получили, предназначены именно для вас в этот день. Повторить выбор нельзя, ведь каждая аффирмация несет свою уникальную энергию и значение. Возвращайтесь завтра, и судьба откроет перед вами новые слова вдохновения.»'
                 bot.send_message(callback.message.chat.id, text, reply_markup=markup, parse_mode='HTML')
         except:
-            print('something went wrong when checking last affirmation')
+            logging.critical('something went wrong when checking last affirmation')
 
     elif callback.data == 'Гороскоп_Козерог':
         horoscope('Козерог', callback.message)
@@ -389,7 +394,7 @@ def check_last_tarot_read(user_id):
     try:
         cur.execute('SELECT * FROM users WHERE user_id=:user_id', {'user_id': user_id})
         user = cur.fetchone()
-        if(user[3] is None):
+        if (user[3] is None):
             return True
     except Exception as e:
         print(e)
